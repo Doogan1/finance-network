@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import {
   Node, Edge, Transaction, SimulationParams,
   SimulationResponse, APIError, AuthResponse
@@ -6,18 +6,96 @@ import {
 
 class FinancialNetworkService {
   private baseURL = '/api/';
-  private token: string | null = null;
+  private accessToken: string | null = null;
+  private refreshToken: string | null = null;
+  private refreshing: Promise<string> | null = null;
 
   constructor() {
     axios.defaults.baseURL = this.baseURL;
-    this.token = localStorage.getItem('authToken');
-    if (this.token) {
-      this.setAuthHeader(this.token);
+    
+    // Load tokens from storage
+    this.accessToken = localStorage.getItem('accessToken');
+    this.refreshToken = localStorage.getItem('refreshToken');
+    
+    if (this.accessToken) {
+      this.setAuthHeader(this.accessToken);
     }
+
+    // Add request interceptor to handle token expiration
+    axios.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+        
+        // If error is not 401 or request has already been retried, reject
+        if (error.response?.status !== 401 || originalRequest._retry) {
+          return Promise.reject(error);
+        }
+
+        originalRequest._retry = true;
+
+        try {
+          // Get new access token
+          const newAccessToken = await this.refreshAccessToken();
+          
+          // Update the failed request with new token
+          originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
+          
+          // Retry the original request
+          return axios(originalRequest);
+        } catch (refreshError) {
+          // If refresh fails, log out user
+          this.logout();
+          return Promise.reject(refreshError);
+        }
+      }
+    );
   }
 
   private setAuthHeader(token: string) {
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  }
+
+  private async refreshAccessToken(): Promise<string> {
+    // If already refreshing, return the existing promise
+    if (this.refreshing) {
+      return this.refreshing;
+    }
+
+    try {
+      this.refreshing = this.doRefreshToken();
+      const newToken = await this.refreshing;
+      return newToken;
+    } finally {
+      this.refreshing = null;
+    }
+  }
+
+  private async doRefreshToken(): Promise<string> {
+    if (!this.refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    try {
+      const response = await axios.post<AuthResponse>('token/refresh/', {
+        refresh: this.refreshToken
+      });
+
+      const newAccessToken = response.data.access;
+      if (!newAccessToken) {
+        throw new Error('No access token received');
+      }
+
+      this.accessToken = newAccessToken;
+      localStorage.setItem('accessToken', newAccessToken);
+      this.setAuthHeader(newAccessToken);
+
+      return newAccessToken;
+    } catch (error) {
+      // If refresh fails, clear tokens
+      this.logout();
+      throw error;
+    }
   }
 
   private handleError(error: AxiosError): never {
@@ -30,23 +108,30 @@ class FinancialNetworkService {
   }
 
   // Authentication
-  async login(username: string, password: string): Promise<string> {
+  async login(username: string, password: string): Promise<void> {
     const response = await axios.post<AuthResponse>('token/', { username, password })
       .catch(error => this.handleError(error as AxiosError));
       
-    const token = response.data.access;
-    if (!token) {
-      throw new Error('No access token received');
+    const { access, refresh } = response.data;
+    
+    if (!access || !refresh) {
+      throw new Error('Invalid token response');
     }
-    this.token = token;
-    localStorage.setItem('authToken', token);
-    this.setAuthHeader(token);
-    return token;
+
+    this.accessToken = access;
+    this.refreshToken = refresh;
+    
+    localStorage.setItem('accessToken', access);
+    localStorage.setItem('refreshToken', refresh);
+    
+    this.setAuthHeader(access);
   }
 
   async logout(): Promise<void> {
-    localStorage.removeItem('authToken');
-    this.token = null;
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    this.accessToken = null;
+    this.refreshToken = null;
     delete axios.defaults.headers.common['Authorization'];
   }
 

@@ -1,11 +1,13 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
+import financialNetworkService from '../services/financialNetworkService';
+import { Node as APINode, Edge as APIEdge } from '../services/types';
 
 interface Node extends SimulationNodeDatum {
   id: string;
   name: string;
-  type: string;
+  type: 'account' | 'expense' | 'income' | 'investment';
   balance?: number;
 }
 
@@ -17,28 +19,61 @@ interface Link extends SimulationLinkDatum<Node> {
 
 const NetworkGraph: React.FC = () => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [links, setLinks] = useState<Link[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const simulationRef = useRef<d3.Simulation<Node, Link> | null>(null);
 
+  // Fetch network data
+  const fetchNetworkData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [nodesData, edgesData] = await Promise.all([
+        financialNetworkService.getNodes(),
+        financialNetworkService.getEdges()
+      ]);
+
+      // Transform API data to D3 format
+      const transformedNodes: Node[] = nodesData.map(node => ({
+        id: (node.id ?? Math.random()).toString(), // Fallback for new nodes
+        name: node.name,
+        type: node.node_type,
+        balance: node.balance
+      }));
+
+      const transformedLinks: Link[] = edgesData.map(edge => ({
+        source: edge.source.toString(),
+        target: edge.target.toString(),
+        value: edge.weight
+      }));
+
+      setNodes(transformedNodes);
+      setLinks(transformedLinks);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch network data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial data fetch
   useEffect(() => {
-    if (!svgRef.current) return;
+    fetchNetworkData();
+    
+    // Set up polling for real-time updates (every 30 seconds)
+    const interval = setInterval(fetchNetworkData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // D3 visualization setup and update
+  useEffect(() => {
+    if (!svgRef.current || loading || error || nodes.length === 0) return;
 
     const width = 800;
     const height = 600;
-
-    // Sample data
-    const nodes: Node[] = [
-      { id: "checking", name: "Checking Account", type: "account", balance: 5000 },
-      { id: "savings", name: "Savings Account", type: "account", balance: 15000 },
-      { id: "rent", name: "Rent", type: "expense" },
-      { id: "salary", name: "Salary", type: "income" },
-      { id: "investment", name: "Investment Fund", type: "investment", balance: 25000 }
-    ];
-
-    const links: Link[] = [
-      { source: "salary", target: "checking", value: 4000 },
-      { source: "checking", target: "savings", value: 1000 },
-      { source: "checking", target: "rent", value: 2000 },
-      { source: "savings", target: "investment", value: 5000 }
-    ];
 
     // Clear previous graph
     d3.select(svgRef.current).selectAll("*").remove();
@@ -54,6 +89,8 @@ const NetworkGraph: React.FC = () => {
       .force("link", d3.forceLink(links).id((d: any) => d.id))
       .force("charge", d3.forceManyBody().strength(-400))
       .force("center", d3.forceCenter(width / 2, height / 2));
+
+    simulationRef.current = simulation;
 
     // Create links
     const link = svg.append("g")
@@ -87,7 +124,7 @@ const NetworkGraph: React.FC = () => {
       });
 
     node.append("title")
-      .text(d => `${d.name}\n${d.balance ? '$' + d.balance : ''}`);
+      .text(d => `${d.name}\n${d.balance ? '$' + d.balance.toLocaleString() : ''}`);
 
     node.append("text")
       .text(d => d.name.split(' ')[0])
@@ -127,7 +164,23 @@ const NetworkGraph: React.FC = () => {
     return () => {
       simulation.stop();
     };
-  }, []);
+  }, [nodes, links, loading, error]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-white p-6 rounded-lg shadow">
+        <div className="text-gray-600">Loading network data...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-white p-6 rounded-lg shadow">
+        <div className="text-red-600">Error: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white p-6 rounded-lg shadow">

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import NetworkGraph from './components/NetworkGraph';
+import LoginForm from './components/LoginForm';
 
 const App: React.FC = () => {
   return (
@@ -12,6 +13,9 @@ const App: React.FC = () => {
         </div>
       </header>
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div className="mb-6">
+          <LoginForm />
+        </div>
         <NetworkGraph />
       </main>
     </div>
