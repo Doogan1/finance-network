@@ -1,28 +1,31 @@
 export interface Node {
-  id?: number;
+  id: number;
   name: string;
-  node_type: 'account' | 'expense' | 'income' | 'investment';
+  node_type: string;
   balance: number;
+  owner?: number;
   created_at?: string;
   updated_at?: string;
 }
 
 export interface Edge {
-  id?: number;
+  id: number;
   source: number;
   target: number;
   weight: number;
+  owner?: number;
   created_at?: string;
   updated_at?: string;
 }
 
 export interface Transaction {
-  id?: number;
+  id: number;
   edge: number;
   amount: number;
   scheduled_date: string;
   is_recurring: boolean;
-  recurrence_interval?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  recurrence_interval?: string;
+  owner?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -30,19 +33,12 @@ export interface Transaction {
 export interface SimulationParams {
   start_date: string;
   end_date: string;
-  include_metrics?: boolean;
-}
-
-export interface NetworkMetrics {
-  total_inflow: number;
-  total_outflow: number;
-  net_worth: number;
-  risk_score: number;
+  nodes?: number[];
 }
 
 export interface SimulationResponse {
-  simulation_results: Transaction[];
-  network_metrics: NetworkMetrics;
+  nodes: Node[];
+  transactions: Transaction[];
 }
 
 export interface APIError {
@@ -53,5 +49,5 @@ export interface APIError {
 
 export interface AuthResponse {
   access: string;
-  refresh?: string;
+  refresh: string;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import NetworkGraph from './components/NetworkGraph';
 import LoginForm from './components/LoginForm';
 
@@ -16,7 +16,7 @@ const App: React.FC = () => {
         <div className="mb-6">
           <LoginForm />
         </div>
-        <NetworkGraph />
+        <NetworkGraph />  {/* No pollInterval prop means no polling */}
       </main>
     </div>
   );
